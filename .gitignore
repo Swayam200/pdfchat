@@ -10,3 +10,4 @@ backend/.venv/
 frontend/node_modules/
 frontend/.next/
 
+backend/chroma_store

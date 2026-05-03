@@ -1,0 +1,12 @@
+fastapi==0.104.1
+uvicorn==0.24.0
+python-multipart==0.0.6
+pydantic-settings==2.1.0
+
+# Phase 2: PDF ingestion
+pypdf==4.0.1
+langchain==0.1.7
+langchain-community==0.0.20
+chromadb==0.4.22
+sentence-transformers==2.2.2
+huggingface-hub==0.16.4
