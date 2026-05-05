@@ -17,7 +17,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://swayam200.me"],
+    allow_origins=["http://localhost:3000", "https://swayam200.me", "http://192.168.0.163:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -133,3 +133,39 @@ def ask(request: AskRequest):
     result = query_rag(request.question)
     return result
 
+@app.post("/summarize")
+def summarize(request: AskRequest):
+    if not os.path.exists(CHROMA_DIR):
+        raise HTTPException(status_code=400, detail="No PDF ingested yet.")
+
+    # For summary we retrieve more chunks — 8 instead of 4
+    # to get a broader picture of the whole document
+    vectorstore = Chroma(
+        persist_directory=CHROMA_DIR,
+        embedding_function=embeddings
+    )
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 8})
+    docs = retriever.get_relevant_documents(
+        "introduction overview summary main topics"
+    )
+    context = "\n\n".join([doc.page_content for doc in docs])
+
+    prompt = f"""Based on the document excerpts below, provide:
+1. A summary in exactly 2-3 sentences describing what this document is about.
+2. Exactly 5 suggested questions a reader might ask, each on a new line starting with "Q: "
+
+Context:
+{context}
+
+Respond in this exact format:
+SUMMARY: <your 2-3 sentence summary here>
+QUESTIONS:
+Q: <question 1>
+Q: <question 2>
+Q: <question 3>
+Q: <question 4>
+Q: <question 5>"""
+
+    model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
+    response = model.generate_content(prompt)
+    return {"raw": response.text}
