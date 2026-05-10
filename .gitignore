@@ -12,3 +12,6 @@ frontend/.next/
 
 backend/chroma_store
 backend/uploads/
+
+.DS_Store
+backend/.DS_Store
