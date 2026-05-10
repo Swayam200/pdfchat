@@ -15,3 +15,6 @@ backend/uploads/
 
 .DS_Store
 backend/.DS_Store
+
+AGENTS.md
+CLAUDE.md
