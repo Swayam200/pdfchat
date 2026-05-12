@@ -39,7 +39,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configure the Google Gemini API with our secret key
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+# We use transport="rest" because gRPC connections often drop or timeout (504 Deadline Exceeded)
+# behind proxies like HuggingFace Spaces or Vercel.
+api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+genai.configure(api_key=api_key, transport="rest")
 
 # Create the FastAPI app
 app = FastAPI()
