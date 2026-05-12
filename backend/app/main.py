@@ -492,7 +492,7 @@ Rules:
         prompt += "\n- Prefer the PDF CONTEXT for your answers. Use the WEB CONTEXT only to supplement or if the PDF lacks the answer."
 
     model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
-    response = model.generate_content(prompt)
+    response = model.generate_content(prompt, request_options={"timeout": 120})
     raw = response.text.strip()
 
     # Parse ANSWER and SOURCES_USED from the structured response
@@ -706,7 +706,7 @@ Q: <question 4>
 Q: <question 5>"""
 
     model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
-    response = model.generate_content(prompt)
+    response = model.generate_content(prompt, request_options={"timeout": 120})
     
     # Return the raw text, the frontend will parse it
     return {"raw": response.text}
