@@ -26,6 +26,8 @@ from langchain.schema import Document
 # Google Generative AI for Gemini
 import google.generativeai as genai
 
+from tavily import TavilyClient
+
 # dotenv to load secret API keys from our .env file
 from dotenv import load_dotenv
 
@@ -94,6 +96,7 @@ STOP_WORDS = {
 
 class AskRequest(BaseModel):
     question: str
+    web_search: bool = False  # Optional field with default value, backward compatible
 
 
 class PdfTextItem(BaseModel):
@@ -377,7 +380,32 @@ def _chunk_page_text(page: int, text: str, filename: str) -> List[Document]:
     return chunks
 
 
-def ask_pdf_question(question: str) -> dict:
+def _search_web(query: str) -> List[Dict[str, str]]:
+    """
+    What Tavily does differently from a raw Google search API: it returns clean extracted content, 
+    not just links — so the LLM can actually read it directly.
+    """
+    api_key = os.getenv("TAVILY_API_KEY")
+    if not api_key:
+        return []
+    
+    try:
+        client = TavilyClient(api_key=api_key)
+        response = client.search(query, max_results=3)
+        return [
+            {
+                "title": result.get("title", ""),
+                "url": result.get("url", ""),
+                "snippet": result.get("content", "")
+            }
+            for result in response.get("results", [])
+        ]
+    except Exception as e:
+        print(f"Tavily search failed: {e}")
+        return []
+
+
+def ask_pdf_question(question: str, web_search: bool = False) -> dict:
     """
     Finds the most relevant text from the PDF and asks Gemini to answer the question using that text.
     This technique is called RAG (Retrieval-Augmented Generation).
@@ -418,13 +446,27 @@ def ask_pdf_question(question: str) -> dict:
     for i, doc in enumerate(docs):
         numbered_context += f"[Source {i+1}, Page {doc.metadata.get('page', '?')}]:\n{doc.page_content}\n\n"
 
+    web_context = ""
+    web_results = []
+    if web_search:
+        web_results = _search_web(question)
+        if web_results:
+            for i, result in enumerate(web_results):
+                web_context += f"[Web {i+1}] \"{result['title']}\" ({result['url']}):\n{result['snippet']}\n\n"
+
+    # Why we label PDF vs web context separately in the prompt:
+    # so Gemini can reason about source priority (preferring PDF over Web)
+    context_block = f"PDF CONTEXT:\n{numbered_context}"
+    if web_context:
+        context_block += f"\nWEB CONTEXT:\n{web_context}"
+
     # Ask Gemini to answer AND tell us which sources it actually relied on.
     # Critically: SOURCES_USED must only include sources whose text directly
     # contains the specific fact used in the answer — not just related context.
     prompt = f"""You are a helpful assistant. Answer the question using ONLY the context below.
 
 Context:
-{numbered_context}
+{context_block}
 Question: {question}
 
 Length and detail guidance:
@@ -442,6 +484,9 @@ Rules:
 - Do not infer that something is "used", "caused", or "proven" unless the context says that directly. A package name, command, or related phrase by itself is not enough evidence.
 - SOURCES_USED must be ONLY sources that contain the specific sentence or data point you cited. Do NOT include sources that are merely related or provide background context.
 - Each HIGHLIGHTS line must copy exact words from the matching source. Prefer one short supporting sentence or phrase, not a whole chunk."""
+
+    if web_context:
+        prompt += "\n- Prefer the PDF CONTEXT for your answers. Use the WEB CONTEXT only to supplement or if the PDF lacks the answer."
 
     model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
     response = model.generate_content(prompt)
@@ -495,11 +540,15 @@ Rules:
             source["item_end"] = item_end
         sources.append(source)
 
-    return {
+    result = {
         "answer": answer_text,
         "sources": sources,
         "answer_snippet": sources[0]["highlight_text"] if sources else answer_text,
     }
+    if web_search:
+        result["web_sources"] = web_results
+
+    return result
 
 # ------------------------------------------
 # API Endpoints (The routes the frontend calls)
@@ -609,7 +658,7 @@ def ask(request: AskRequest):
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
     
     # Get the answer
-    result = ask_pdf_question(request.question)
+    result = ask_pdf_question(request.question, web_search=request.web_search)
     return result
 
 

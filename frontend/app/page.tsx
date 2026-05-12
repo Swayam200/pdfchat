@@ -22,11 +22,20 @@ const PdfViewer = dynamic(() => import("./components/PdfViewer"), { ssr: false }
 // (These tell TypeScript what our data looks like)
 // ==========================================
 
+type WebSource = {
+  title: string;
+  url: string;
+  snippet: string;
+};
+
 // Defines a single message in the chat
 type Message = {
   role: "user" | "assistant";
   content: string;
   sources?: Source[];               // Where the AI found the answer
+  webSources?: WebSource[];         // Web search results
+  usedWebSearch?: boolean;          // Was web search used?
+  answerSnippet?: string;           // Optional answer snippet for highlights
   suggestedQuestions?: string[];    // Clickable questions for the user
 };
 
@@ -57,6 +66,8 @@ type UploadResponse = {
 type AskResponse = {
   answer?: string;
   sources?: Source[];
+  web_sources?: WebSource[];
+  answer_snippet?: string;
   detail?: string;
 };
 
@@ -116,6 +127,7 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);      // List of all chat messages
   const [question, setQuestion] = useState("");                 // The text currently typed in the input box
   const [asking, setAsking] = useState(false);                  // Is the AI currently thinking?
+  const [webSearch, setWebSearch] = useState(false);            // Is web search toggle ON?
 
   // PDF Viewer state
   const [blobUrl, setBlobUrl] = useState<string | null>(null);  // A temporary URL pointing to the file in the browser's memory
@@ -300,7 +312,7 @@ export default function Home() {
       const res = await fetch(`${apiUrl()}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: userMsg.content }),
+        body: JSON.stringify({ question: userMsg.content, web_search: webSearch }),
       });
       const data = (await res.json()) as AskResponse;
 
@@ -311,6 +323,9 @@ export default function Home() {
           role: "assistant",
           content: data.answer ?? data.detail ?? "No answer returned.",
           sources: data.sources,
+          webSources: data.web_sources,
+          usedWebSearch: webSearch,
+          answerSnippet: data.answer_snippet,
         },
       ]);
     } catch {
@@ -457,6 +472,11 @@ export default function Home() {
 
               {/* Message text */}
               <p style={{ whiteSpace: "pre-wrap", lineHeight: "1.6" }}>
+                {msg.usedWebSearch && msg.role === "assistant" && msg.content !== "..." && (
+                  <span className="mr-2 mb-1 inline-flex items-center rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-400 border border-blue-500/20">
+                    🌐 Web
+                  </span>
+                )}
                 {msg.content === "..." ? (
                   <span className="animate-pulse text-gray-400">Thinking...</span>
                 ) : (
@@ -554,6 +574,25 @@ export default function Home() {
                   </details>
                 );
               })()}
+
+              {/* Web Sources */}
+              {msg.webSources && msg.webSources.length > 0 && (
+                <details className="mt-3 border-t border-white/5 pt-2">
+                  <summary className="cursor-pointer text-xs text-blue-400 hover:text-blue-300">
+                    🌐 {msg.webSources.length} Web source{msg.webSources.length > 1 ? "s" : ""}
+                  </summary>
+                  <div className="mt-2 space-y-2">
+                    {msg.webSources.map((ws, i) => (
+                      <div key={i} className="rounded-lg bg-[#111111] border border-white/5 px-3 py-2 text-xs">
+                        <a href={ws.url} target="_blank" rel="noopener noreferrer" className="font-medium text-blue-400 hover:underline line-clamp-1">
+                          {ws.title || ws.url}
+                        </a>
+                        <p className="mt-0.5 line-clamp-2 text-gray-400">{ws.snippet}</p>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
             </div>
           </div>
         ))}
@@ -563,7 +602,7 @@ export default function Home() {
 
       {/* 3. Input Area (Bottom bar) */}
       <div className="bg-[#0a0a0a] px-4 py-4 shrink-0 border-t border-white/5">
-        <div className="mx-auto flex max-w-3xl gap-3">
+        <div className="mx-auto flex max-w-3xl gap-3 items-center">
           <textarea
             rows={1}
             value={question}
@@ -573,6 +612,21 @@ export default function Home() {
             placeholder="Ask something about your PDF..."
             className="flex-1 resize-none rounded-xl border border-white/10 bg-[#111111] px-4 py-3 text-sm text-gray-100 focus:border-white/20 focus:outline-none placeholder-gray-500"
           />
+
+          {/* Web Search Toggle */}
+          <div className="flex items-center gap-2 px-1">
+            <button
+              onClick={() => setWebSearch(!webSearch)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none ${webSearch ? 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]' : 'bg-[#222222] border border-white/10'}`}
+              aria-pressed={webSearch}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${webSearch ? 'translate-x-6' : 'translate-x-1'}`}
+              />
+            </button>
+            <span className="text-xs text-gray-400 font-medium select-none">Web</span>
+          </div>
+
           <button
             onClick={handleAsk}
             disabled={!question.trim() || asking}
